@@ -6,23 +6,11 @@ The repository is for new approach with Python
 ### to run
 # Development
 1. uvicorn main:app --reload  
-# Production
-1. uvicorn app.main:app --host 0.0.0.0 --port 8000
+
 
 2. http://127.0.0.1:8000/docs   <!-- the Swagger documentation will appear -->
 
-# Audio Transcription API
 
-FastAPI application for transcribing audio files using OpenAI's Whisper model with token-based authentication and comprehensive logging.
-
-## Features
-
-- 🔐 Token-based authentication
-- 📝 Automatic logging of all requests
-- 📦 Chunking support for large files (>25MB)
-- 🎵 Multiple audio format support
-- 📊 Structured project architecture
-- 💾 Automatic transcription saving
 
 ## Project Structure
 
@@ -32,15 +20,11 @@ app/
 ├── config.py                  # Configuration settings
 ├── api/
 │   └── routes/
-│       ├── transcription.py   # Transcription endpoints
 │       └── health.py          # Health check endpoints
 ├── core/
 │   ├── security.py           # Authentication
 │   └── logging.py            # Logging decorator & utilities
-├── services/
-│   └── transcription_service.py  # Business logic
-└── utils/
-    └── file_utils.py         # File utilities (if needed)
+
 ```
 
 ## Setup
