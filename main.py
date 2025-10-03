@@ -1,195 +1,165 @@
 import os
-from fastapi import FastAPI, Depends, HTTPException, Header, Request
-from dotenv import load_dotenv
 import logging
 from datetime import datetime
 from functools import wraps
+
+from fastapi import FastAPI, Depends, HTTPException, Header, Request
+from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
+
 from app.api.routes import auth
 
-
+# ============================================
 # Load environment variables
+# ============================================
 load_dotenv()
 
-# Setup logging
+# ============================================
+# Logging Configuration
+# ============================================
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
         logging.FileHandler("app.log"),
-        logging.StreamHandler()
-    ]
+        logging.StreamHandler(),
+    ],
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI()
+# ============================================
+# FastAPI App Initialization
+# ============================================
+app = FastAPI(title="Linkaxom API", version="1.0.0")
+
+# Include routes (e.g., /login)
 app.include_router(auth.router)
 
+# ============================================
+# CORS Configuration (🔥 REQUIRED for frontend)
+# ============================================
+origins = [
+    "http://localhost:8050",  # your frontend
+    "http://127.0.0.1:8050",
+]
 
-# Get token from environment
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,       # or ["*"] during dev
+    allow_credentials=True,
+    allow_methods=["*"],         # allow GET, POST, OPTIONS, etc.
+    allow_headers=["*"],         # allow Content-Type, Authorization, etc.
+)
+
+# ============================================
+# Token Verification
+# ============================================
 API_TOKEN = os.getenv("API_TOKEN", "test-token-12345")
 
-
-# ============================================
-# AUTHENTICATION DEPENDENCY
-# ============================================
 async def verify_token(authorization: str = Header(None)) -> str:
-    """
-    This dependency checks if the Authorization header contains a valid Bearer token.
-    FastAPI will automatically call this before executing the endpoint.
-    """
-    # Check if Authorization header exists
+    """Validates Bearer token in Authorization header."""
     if not authorization:
-        logger.warning("Request without Authorization header")
+        logger.warning("❌ Missing Authorization header")
         raise HTTPException(
             status_code=401,
-            detail="Authorization header missing. Use: 'Authorization: Bearer your-token'",
+            detail="Authorization header missing",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
-    # Split "Bearer <token>"
+
     parts = authorization.split()
     if len(parts) != 2 or parts[0].lower() != "bearer":
-        logger.warning(f"Invalid authorization format: {authorization}")
+        logger.warning(f"❌ Invalid header format: {authorization}")
         raise HTTPException(
             status_code=401,
-            detail="Invalid authorization header. Format: 'Bearer <token>'",
+            detail="Invalid authorization header format. Use 'Bearer <token>'",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
+
     token = parts[1]
-    
-    # Verify token matches
     if token != API_TOKEN:
-        logger.warning(f"Invalid token attempt: ***{token[-4:] if len(token) > 4 else '****'}")
+        logger.warning(f"❌ Invalid token attempt: ***{token[-4:]}")
         raise HTTPException(
             status_code=401,
             detail="Invalid token",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
-    logger.info(f"Token verified: ***{token[-4:] if len(token) > 4 else '****'}")
+
+    logger.info(f"✅ Token verified: ***{token[-4:]}")
     return token
 
-
 # ============================================
-# LOGGING DECORATOR
+# Logging Decorator
 # ============================================
 def log_request(func):
-    """Decorator to log requests with token info"""
     @wraps(func)
     async def wrapper(*args, **kwargs):
-        # Find the Request object in kwargs
-        request = kwargs.get('request')
-        
-        # Get client info
+        request: Request = kwargs.get("request")
         client_ip = request.client.host if request and request.client else "unknown"
         token = request.headers.get("Authorization", "None").replace("Bearer ", "")
         masked_token = f"***{token[-4:]}" if token and len(token) > 4 else "None"
-        
-        # Log request start
-        logger.info(
-            f"📥 REQUEST | Endpoint: {func.__name__} | "
-            f"IP: {client_ip} | Token: {masked_token}"
-        )
-        
+
+        logger.info(f"📥 REQUEST | {func.__name__} | IP: {client_ip} | Token: {masked_token}")
+
         import time
         start = time.time()
-        
+
         try:
-            # Execute endpoint
             result = await func(*args, **kwargs)
             duration = time.time() - start
-            
-            # Log success
-            logger.info(
-                f"✅ SUCCESS | Endpoint: {func.__name__} | "
-                f"Duration: {duration:.2f}s | IP: {client_ip}"
-            )
+            logger.info(f"✅ SUCCESS | {func.__name__} | {duration:.2f}s | IP: {client_ip}")
             return result
-            
         except Exception as e:
             duration = time.time() - start
-            # Log error
-            logger.error(
-                f"❌ ERROR | Endpoint: {func.__name__} | "
-                f"Duration: {duration:.2f}s | Error: {str(e)}"
-            )
+            logger.error(f"❌ ERROR | {func.__name__} | {duration:.2f}s | {e}")
             raise
-    
+
     return wrapper
 
-
 # ============================================
-# ENDPOINTS
+# Public Endpoints
 # ============================================
-
 @app.get("/")
 async def root():
-    """
-    PUBLIC endpoint - No authentication required
-    Use this to test if the API is running
-    """
     return {
         "message": "API is running!",
         "status": "healthy",
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
     }
-
 
 @app.get("/public")
 async def public_endpoint():
-    """
-    PUBLIC endpoint - No authentication required
-    """
     return {
         "message": "This is a public endpoint",
-        "auth_required": False
+        "auth_required": False,
     }
 
+@app.get("/token-info")
+async def token_info():
+    return {
+        "token": API_TOKEN,
+        "usage": "Use this header: Authorization: Bearer " + API_TOKEN,
+        "warning": "Remove this endpoint in production!",
+    }
 
-# @app.get("/protected")
-# @log_request
-# async def protected_endpoint(
-#     request: Request,
-#     token: str = Depends(verify_token)
-# ):
-#     """
-#     PROTECTED endpoint - Requires valid Bearer token
-    
-#     How it works:
-#     1. FastAPI sees 'token: str = Depends(verify_token)'
-#     2. Before running this function, it calls verify_token()
-#     3. If verify_token() raises HTTPException, this function never runs
-#     4. If verify_token() succeeds, this function runs and gets the token
-#     """
-#     return {
-#         "message": "You have accessed a protected endpoint!",
-#         "auth_required": True,
-#         "token_valid": True,
-#         "masked_token": f"***{token[-4:]}" if len(token) > 4 else "****"
-#     }
-
+# ============================================
+# Protected Endpoints
+# ============================================
 @app.get("/protected")
 @log_request
-async def protected_endpoint(request: Request, token_data: dict = Depends(verify_token)):
+async def protected_endpoint(request: Request, token: str = Depends(verify_token)):
     return {
         "message": "JWT verified!",
-        "user": token_data.get("sub"),
-        "token_valid": True
+        "token_valid": True,
+        "masked_token": f"***{token[-4:]}"
     }
-
 
 @app.post("/protected/data")
 @log_request
 async def protected_post_endpoint(
     request: Request,
     data: dict,
-    token: str = Depends(verify_token)
+    token: str = Depends(verify_token),
 ):
-    """
-    PROTECTED POST endpoint - Requires valid Bearer token
-    Accepts JSON data
-    """
     return {
         "message": "Data received successfully",
         "received_data": data,
@@ -197,43 +167,23 @@ async def protected_post_endpoint(
         "masked_token": f"***{token[-4:]}"
     }
 
-
 @app.get("/admin")
 @log_request
 async def admin_endpoint(
     request: Request,
-    token: str = Depends(verify_token)
+    token: str = Depends(verify_token),
 ):
-    """
-    PROTECTED admin endpoint - Requires valid Bearer token
-    You could add additional role-based checks here
-    """
     return {
         "message": "Welcome to admin area",
         "auth_required": True,
-        "access_level": "admin"
+        "access_level": "admin",
     }
 
-
 # ============================================
-# INFO ENDPOINT TO SEE YOUR TOKEN
+# Run the server
 # ============================================
-@app.get("/token-info")
-async def token_info():
-    """
-    PUBLIC endpoint that shows you what token is configured
-    (Only for development/testing - REMOVE in production!)
-    """
-    return {
-        "message": "Token configuration info",
-        "token": API_TOKEN,
-        "warning": "Remove this endpoint in production!",
-        "usage": "Add this header to your requests: Authorization: Bearer " + API_TOKEN
-    }
-
-
 if __name__ == "__main__":
     import uvicorn
     print(f"\n🔑 Your API Token: {API_TOKEN}")
-    print(f"📝 Add this header to Postman: Authorization: Bearer {API_TOKEN}\n")
+    print("📝 Add this header to Postman: Authorization: Bearer " + API_TOKEN + "\n")
     uvicorn.run(app, host="0.0.0.0", port=8000)
